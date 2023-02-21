@@ -144,14 +144,6 @@ static void logQuery(const String & query, ContextPtr context, bool internal, Qu
             comment,
             toOneLineQuery(query),
             QueryProcessingStage::toString(stage));
-        LOG_DEBUG(&Poco::Logger::get("testLog"), "(from {}{}{}){}{} {} (stage: {})",
-                  client_info.current_address.toString(),
-                  (current_user != "default" ? ", user: " + current_user : ""),
-                  (!initial_query_id.empty() && current_query_id != initial_query_id ? ", initial_query_id: " + initial_query_id : std::string()),
-                  transaction_info,
-                  comment,
-                  toOneLineQuery(query),
-                  QueryProcessingStage::toString(stage));
 
         if (client_info.client_trace_context.trace_id != UUID())
         {
