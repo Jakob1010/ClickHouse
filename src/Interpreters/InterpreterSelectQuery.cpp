@@ -422,7 +422,7 @@ InterpreterSelectQuery::InterpreterSelectQuery(
     }
 
     JoinedTables joined_tables(getSubqueryContext(context), getSelectQuery(), options.with_all_cols, options_.is_create_parameterized_view);
-
+    LOG_TRACE(log, "InterpreterSelectQuery(): {}", joined_tables.tablesCount());
     bool got_storage_from_query = false;
     if (!has_input && !storage)
     {
@@ -1579,6 +1579,7 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, std::optional<P
 
             if (expressions.hasJoin())
             {
+                LOG_TRACE(log, "expression.hasJoin()");
                 if (expressions.join->isFilled())
                 {
                     QueryPlanStepPtr filled_join_step = std::make_unique<FilledJoinStep>(

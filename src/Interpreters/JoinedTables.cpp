@@ -61,7 +61,6 @@ void replaceJoinedTable(const ASTSelectQuery & select_query)
         return;
 
     const auto & table_join = join->table_join->as<ASTTableJoin &>();
-
     /// TODO: Push down for CROSS JOIN is not OK [disabled]
     if (table_join.kind == JoinKind::Cross)
         return;
@@ -237,6 +236,7 @@ StoragePtr JoinedTables::getLeftTableStorage()
 
 bool JoinedTables::resolveTables()
 {
+    LOG_TRACE(&Poco::Logger::get("JoinedTables"), "resolveTables()");
     const auto & settings = context->getSettingsRef();
     bool include_alias_cols = include_all_columns || settings.asterisk_include_alias_columns;
     bool include_materialized_cols = include_all_columns || settings.asterisk_include_materialized_columns;
@@ -256,6 +256,7 @@ bool JoinedTables::resolveTables()
                                 "in JOIN (set joined_subquery_requires_alias=0 to disable restriction). "
                                 "While processing '{}'", table_expressions[i]->formatForErrorMessage());
             }
+            LOG_TRACE(&Poco::Logger::get("JoinedTables"), "JOIN TABLE '{}'", t.table.table);
         }
     }
 
@@ -303,6 +304,7 @@ void JoinedTables::rewriteDistributedInAndJoins(ASTPtr & query)
 
 std::shared_ptr<TableJoin> JoinedTables::makeTableJoin(const ASTSelectQuery & select_query_)
 {
+    LOG_TRACE(&Poco::Logger::get("JoinedTables"), "makeTableJoin()");
     if (tables_with_columns.size() < 2)
         return {};
 
