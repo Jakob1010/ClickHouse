@@ -1,6 +1,5 @@
 #include <Interpreters/ClusterProxy/SelectStreamFactory.h>
 #include <Interpreters/Cluster.h>
-#include <Interpreters/InterpreterSelectQuery.h>
 #include <Storages/StorageReplicatedMergeTree.h>
 #include <Storages/VirtualColumnUtils.h>
 #include <Common/Exception.h>
@@ -15,6 +14,7 @@
 
 #include <Client/IConnections.h>
 #include <Common/logger_useful.h>
+#include <Common/FailPoint.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Processors/QueryPlan/ReadFromRemote.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
@@ -34,6 +34,11 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int ALL_REPLICAS_ARE_STALE;
+}
+
+namespace FailPoints
+{
+    extern const char use_delayed_remote_source[];
 }
 
 namespace ClusterProxy
@@ -57,20 +62,23 @@ ASTPtr rewriteSelectQuery(
     // are written into the query context and will be sent by the query pipeline.
     select_query.setExpression(ASTSelectQuery::Expression::SETTINGS, {});
 
-    if (table_function_ptr)
-        select_query.addTableFunction(table_function_ptr);
-    else
-        select_query.replaceDatabaseAndTable(remote_database, remote_table);
-
-    /// Restore long column names (cause our short names are ambiguous).
-    /// TODO: aliased table functions & CREATE TABLE AS table function cases
-    if (!table_function_ptr)
+    if (!context->getSettingsRef().allow_experimental_analyzer)
     {
-        RestoreQualifiedNamesVisitor::Data data;
-        data.distributed_table = DatabaseAndTableWithAlias(*getTableExpression(query->as<ASTSelectQuery &>(), 0));
-        data.remote_table.database = remote_database;
-        data.remote_table.table = remote_table;
-        RestoreQualifiedNamesVisitor(data).visit(modified_query_ast);
+        if (table_function_ptr)
+            select_query.addTableFunction(table_function_ptr);
+        else
+            select_query.replaceDatabaseAndTable(remote_database, remote_table);
+
+        /// Restore long column names (cause our short names are ambiguous).
+        /// TODO: aliased table functions & CREATE TABLE AS table function cases
+        if (!table_function_ptr)
+        {
+            RestoreQualifiedNamesVisitor::Data data;
+            data.distributed_table = DatabaseAndTableWithAlias(*getTableExpression(query->as<ASTSelectQuery &>(), 0));
+            data.remote_table.database = remote_database;
+            data.remote_table.table = remote_table;
+            RestoreQualifiedNamesVisitor(data).visit(modified_query_ast);
+        }
     }
 
     /// To make local JOIN works, default database should be added to table names.
@@ -122,6 +130,7 @@ void SelectStreamFactory::createForShard(
     {
         remote_shards.emplace_back(Shard{
             .query = query_ast,
+            .main_table = main_table,
             .header = header,
             .shard_info = shard_info,
             .lazy = lazy,
@@ -130,6 +139,12 @@ void SelectStreamFactory::createForShard(
     };
 
     const auto & settings = context->getSettingsRef();
+
+    fiu_do_on(FailPoints::use_delayed_remote_source,
+    {
+        emplace_remote_stream(/*lazy=*/true, /*local_delay=*/999999);
+        return;
+    });
 
     if (settings.prefer_localhost_replica && shard_info.isLocal())
     {

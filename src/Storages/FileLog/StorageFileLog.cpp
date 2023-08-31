@@ -312,7 +312,7 @@ Pipe StorageFileLog::read(
     if (mv_attached)
         throw Exception(ErrorCodes::QUERY_NOT_ALLOWED, "Cannot read from StorageFileLog with attached materialized views");
 
-    std::lock_guard<std::mutex> lock(file_infos_mutex);
+    std::lock_guard lock(file_infos_mutex);
     if (running_streams)
     {
         throw Exception(ErrorCodes::CANNOT_SELECT, "Another select query is running on this table, need to wait it finish.");
@@ -659,7 +659,7 @@ void StorageFileLog::threadFunc()
 
 bool StorageFileLog::streamToViews()
 {
-    std::lock_guard<std::mutex> lock(file_infos_mutex);
+    std::lock_guard lock(file_infos_mutex);
     if (running_streams)
     {
         LOG_INFO(log, "Another select query is running on this table, need to wait it finish.");
@@ -719,6 +719,7 @@ bool StorageFileLog::streamToViews()
     {
         block_io.pipeline.complete(std::move(input));
         block_io.pipeline.setNumThreads(max_streams_number);
+        block_io.pipeline.setConcurrencyControl(new_context->getSettingsRef().use_concurrency_control);
         block_io.pipeline.setProgressCallback([&](const Progress & progress) { rows += progress.read_rows.load(); });
         CompletedPipelineExecutor executor(block_io.pipeline);
         executor.execute();

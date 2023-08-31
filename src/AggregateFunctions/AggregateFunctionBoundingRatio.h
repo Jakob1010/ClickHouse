@@ -20,7 +20,7 @@ namespace ErrorCodes
 
 /** Tracks the leftmost and rightmost (x, y) data points.
   */
-struct AggregateFunctionBoundingRatioData //-V730
+struct AggregateFunctionBoundingRatioData
 {
     struct Point
     {
@@ -67,28 +67,48 @@ struct AggregateFunctionBoundingRatioData //-V730
         }
     }
 
-    void serialize(WriteBuffer & buf) const
-    {
-        writeBinary(empty, buf);
-
-        if (!empty)
-        {
-            writePODBinary(left, buf);
-            writePODBinary(right, buf);
-        }
-    }
-
-    void deserialize(ReadBuffer & buf)
-    {
-        readBinary(empty, buf);
-
-        if (!empty)
-        {
-            readPODBinary(left, buf);
-            readPODBinary(right, buf);
-        }
-    }
+    void serialize(WriteBuffer & buf) const;
+    void deserialize(ReadBuffer & buf);
 };
+
+template <std::endian endian>
+inline void transformEndianness(AggregateFunctionBoundingRatioData::Point & p)
+{
+    transformEndianness<endian>(p.x);
+    transformEndianness<endian>(p.y);
+}
+
+void AggregateFunctionBoundingRatioData::serialize(WriteBuffer & buf) const
+{
+    writeBinaryLittleEndian(empty, buf);
+
+    if (!empty)
+    {
+        writeBinaryLittleEndian(left, buf);
+        writeBinaryLittleEndian(right, buf);
+    }
+}
+
+void AggregateFunctionBoundingRatioData::deserialize(ReadBuffer & buf)
+{
+    readBinaryLittleEndian(empty, buf);
+
+    if (!empty)
+    {
+        readBinaryLittleEndian(left, buf);
+        readBinaryLittleEndian(right, buf);
+    }
+}
+
+inline void writeBinary(const AggregateFunctionBoundingRatioData::Point & p, WriteBuffer & buf)
+{
+    writePODBinary(p, buf);
+}
+
+inline void readBinary(AggregateFunctionBoundingRatioData::Point & p, ReadBuffer & buf)
+{
+    readPODBinary(p, buf);
+}
 
 
 class AggregateFunctionBoundingRatio final : public IAggregateFunctionDataHelper<AggregateFunctionBoundingRatioData, AggregateFunctionBoundingRatio>
