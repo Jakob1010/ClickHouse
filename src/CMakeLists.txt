@@ -78,7 +78,10 @@ add_subdirectory (Loggers)
 
 
 set(dbms_headers)
-set(dbms_sources)
+set(dbms_sources
+        Interpreters/YannakakisOptimizer.cpp
+        Interpreters/YannakakisOptimizer.h
+        Interpreters/YannakakisOptimizer.h)
 
 add_headers_and_sources(clickhouse_common_io Common)
 add_headers_and_sources(clickhouse_common_io Common/HashTable)
