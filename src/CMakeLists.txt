@@ -50,7 +50,9 @@ else()
 endif()
 
 set(dbms_headers)
-set(dbms_sources)
+set(dbms_sources
+        Interpreters/YannakakisOptimizer.cpp
+        Interpreters/YannakakisOptimizer.h)
 
 add_subdirectory (Access)
 add_subdirectory (Backups)

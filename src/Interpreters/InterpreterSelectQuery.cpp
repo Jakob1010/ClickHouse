@@ -92,6 +92,7 @@
 #include <Common/scope_guard_safe.h>
 #include <Common/typeid_cast.h>
 #include <Common/ProfileEvents.h>
+#include <Interpreters/YannakakisOptimizer.h>
 
 
 namespace ProfileEvents
@@ -253,10 +254,11 @@ ContextPtr getSubqueryContext(const ContextPtr & context)
     return subquery_context;
 }
 
-void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, const String & database, const Settings & settings)
+static void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, const ContextPtr & context)
 {
     ASTSelectQuery & select = query->as<ASTSelectQuery &>();
-
+    const String & database = context->getCurrentDatabase();
+    const Settings & settings = context->getSettingsRef();
     Aliases aliases;
     if (ASTPtr with = select.with())
         QueryAliasesNoSubqueriesVisitor(aliases).visit(with);
@@ -270,6 +272,11 @@ void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, cons
     join_to_subs_data.try_to_keep_original_names = settings.multiple_joins_try_to_keep_original_names;
 
     JoinToSubqueryTransformVisitor(join_to_subs_data).visit(query);
+
+    // Try to apply Yannakakis algorithm
+    TablesWithColumns tables_copy = tables;
+    //if (settings)
+    YannakakisOptimizer().applyYannakakis(select, query, tables_copy);
 }
 
 /// Checks that the current user has the SELECT privilege.
@@ -504,7 +511,7 @@ InterpreterSelectQuery::InterpreterSelectQuery(
     /// Rewrite JOINs
     if (!has_input && joined_tables.tablesCount() > 1)
     {
-        rewriteMultipleJoins(query_ptr, joined_tables.tablesWithColumns(), context->getCurrentDatabase(), context->getSettingsRef());
+        rewriteMultipleJoins(query_ptr, joined_tables.tablesWithColumns(), context);
 
         joined_tables.reset(getSelectQuery());
         joined_tables.resolveTables();
