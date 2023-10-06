@@ -5,6 +5,10 @@
 #include <Interpreters/InDepthNodeVisitor.h>
 #include <Storages/IStorage.h>
 #include <Core/Settings.h>
+#include <unordered_map>
+#include <unordered_set>
+#include <string>
+#include <iostream>
 
 namespace DB
 {
@@ -12,20 +16,11 @@ namespace DB
 class YannakakisOptimizer {
 
 public:
-    /*
-    struct Data
-    {
-        const std::vector<StoragePtr> & storages;
-        TablesWithColumns & tables; /// This will be reordered after visit() is called.
-        const Aliases & aliases;
-        const Settings & settings;
-        const String current_database;
-    };
-     */
-
-    //private:
-    bool applyYannakakis(ASTSelectQuery & select, ASTPtr & ast, TablesWithColumns & tables);
+    bool applyYannakakis(ASTSelectQuery & select);
 };
+
+void collectTablesAndPredicates(ASTSelectQuery & select, std::unordered_map<std::string, std::unordered_set<std::string>> &tablesAndPredicates);
+void printTablesAndPredicates(const std::unordered_map<std::string, std::unordered_set<std::string>> tablesAndPredicates);
 
 }
 

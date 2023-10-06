@@ -14,7 +14,7 @@
 #include <Parsers/ASTExpressionList.h>
 #include <Parsers/ASTInterpolateElement.h>
 #include <Parsers/ASTIdentifier.h>
-
+#include <Interpreters/YannakakisOptimizer.h>
 
 namespace DB
 {
@@ -489,6 +489,11 @@ bool ParserSelectQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expected)
     select_query->setExpression(ASTSelectQuery::Expression::LIMIT_LENGTH, std::move(limit_length));
     select_query->setExpression(ASTSelectQuery::Expression::SETTINGS, std::move(settings));
     select_query->setExpression(ASTSelectQuery::Expression::INTERPOLATE, std::move(interpolate_expression_list));
+
+    // Try to apply Yannakakis algorithm
+    ASTSelectQuery queryCopy = *select_query;
+    YannakakisOptimizer().applyYannakakis(queryCopy);
+
     return true;
 }
 
