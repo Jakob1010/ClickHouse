@@ -51,8 +51,10 @@ endif()
 
 set(dbms_headers)
 set(dbms_sources
-        Interpreters/YannakakisOptimizer.cpp
-        Interpreters/YannakakisOptimizer.h)
+        Processors/Transforms/Yannakakis/YannakakisOptimizer.cpp
+        Processors/Transforms/Yannakakis/YannakakisOptimizer.h
+        Processors/Transforms/Yannakakis/DisjointSet.cpp
+        Processors/Transforms/Yannakakis/DisjointSet.h)
 
 add_subdirectory (Access)
 add_subdirectory (Backups)

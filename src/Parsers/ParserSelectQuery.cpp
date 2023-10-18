@@ -1,20 +1,20 @@
 #include <memory>
+#include <Parsers/ASTExpressionList.h>
+#include <Parsers/ASTIdentifier.h>
+#include <Parsers/ASTInterpolateElement.h>
 #include <Parsers/ASTLiteral.h>
+#include <Parsers/ASTOrderByElement.h>
 #include <Parsers/ASTSelectQuery.h>
-#include <Parsers/IParserBase.h>
 #include <Parsers/CommonParsers.h>
 #include <Parsers/ExpressionElementParsers.h>
 #include <Parsers/ExpressionListParsers.h>
-#include <Parsers/ParserSetQuery.h>
+#include <Parsers/IParserBase.h>
 #include <Parsers/ParserSampleRatio.h>
 #include <Parsers/ParserSelectQuery.h>
+#include <Parsers/ParserSetQuery.h>
 #include <Parsers/ParserTablesInSelectQuery.h>
 #include <Parsers/ParserWithElement.h>
-#include <Parsers/ASTOrderByElement.h>
-#include <Parsers/ASTExpressionList.h>
-#include <Parsers/ASTInterpolateElement.h>
-#include <Parsers/ASTIdentifier.h>
-#include <Interpreters/YannakakisOptimizer.h>
+#include "Processors/Transforms/Yannakakis/YannakakisOptimizer.h"
 
 namespace DB
 {

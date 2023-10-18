@@ -1065,8 +1065,8 @@ class IColumn;
     M(Bool, regexp_dict_flag_dotall, false, "Allow '.' to match newline characters for a regexp_tree dictionary.", 0) \
     \
     M(Bool, dictionary_use_async_executor, false, "Execute a pipeline for reading from a dictionary with several threads. It's supported only by DIRECT dictionary with CLICKHOUSE source.", 0) \
-    M(Bool, precise_float_parsing, false, "Prefer more precise (but slower) float parsing algorithm", 0) \
-
+    M(Bool, precise_float_parsing, false, "Prefer more precise (but slower) float parsing algorithm", 0)                                                              \
+    M(Bool, yannakakis_optimizer, true, "Enable Yannakakis optimizer.", 0)
 // End of FORMAT_FACTORY_SETTINGS
 // Please add settings non-related to formats into the COMMON_SETTINGS above.
 
