@@ -1,22 +1,32 @@
 #pragma once
 
 #include <vector>
+#include <unordered_map>
+#include <string>
 
+namespace DB
+{
 class DisjointSet
 {
 public:
-    DisjointSet(int size);
-
     // Find the representative (root) of the set containing element x
-    int find(int x);
+    std::string find(std::string x);
 
     // Union two sets containing elements x and y
-    void unionSets(int x, int y);
+    void unionSets(std::string x, std::string y);
 
-    // Check if elements x and y are in the same set
-    bool sameSet(int x, int y);
+    // Prints key value pairs of parent
+    void dumpSet();
+
+    // Adds element to DS and returns true if successful
+    bool addToSet(std::string);
+
+    // Check if element exists
+    bool exists(std::string);
 
 private:
-    std::vector<int> parent;
-    std::vector<int> rank;
+    std::unordered_map<std::string, std::string> parent;
+    std::unordered_map<std::string, int> rank;
 };
+
+}
