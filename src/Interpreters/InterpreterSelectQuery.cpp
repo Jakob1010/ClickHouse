@@ -256,6 +256,9 @@ ContextPtr getSubqueryContext(const ContextPtr & context)
 void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, const String & database, const Settings & settings)
 {
     ASTSelectQuery & select = query->as<ASTSelectQuery &>();
+    std::cout << "rewriteMultipleJoins" << std::endl;
+    std::cout << select.dumpTree() << std::endl;
+    std::cout << database << std::endl;
 
     Aliases aliases;
     if (ASTPtr with = select.with())
@@ -381,6 +384,13 @@ InterpreterSelectQuery::InterpreterSelectQuery(
     , metadata_snapshot(metadata_snapshot_)
     , prepared_sets(prepared_sets_)
 {
+    std::cout << "InterpreterSelectQuery" << std::endl;
+
+    ASTSelectQuery & select = query_ptr_->as<ASTSelectQuery &>();
+    std::cout << options_.modify_inplace << std::endl;
+    std::cout << select.dumpTree() << std::endl;
+    std::cout << getSelectQuery().dumpTree() << std::endl;
+
     checkStackSize();
 
     if (!prepared_sets)
@@ -422,6 +432,7 @@ InterpreterSelectQuery::InterpreterSelectQuery(
     }
 
     JoinedTables joined_tables(getSubqueryContext(context), getSelectQuery(), options.with_all_cols, options_.is_create_parameterized_view);
+
 
     bool got_storage_from_query = false;
     if (!has_input && !storage)
@@ -500,7 +511,8 @@ InterpreterSelectQuery::InterpreterSelectQuery(
             throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "To use parallel replicas with plain MergeTree tables please enable setting `parallel_replicas_for_non_replicated_merge_tree`");
         }
     }
-
+    std::cout << "511" << std::endl;
+    std::cout << getSelectQuery().dumpTree() << std::endl;
     /// Rewrite JOINs
     if (!has_input && joined_tables.tablesCount() > 1)
     {
@@ -528,6 +540,8 @@ InterpreterSelectQuery::InterpreterSelectQuery(
             storage_snapshot = nullptr;
         }
     }
+    std::cout << "546" << std::endl;
+    std::cout << getSelectQuery().dumpTree() << std::endl;
 
     if (!has_input)
     {

@@ -12,6 +12,7 @@
 #include <Parsers/ParserSampleRatio.h>
 #include <Parsers/ParserSelectQuery.h>
 #include <Parsers/ParserSetQuery.h>
+#include <Parsers/parseQuery.h>
 #include <Parsers/ParserTablesInSelectQuery.h>
 #include <Parsers/ParserWithElement.h>
 #include "Processors/Transforms/Yannakakis/YannakakisOptimizer.h"
@@ -491,9 +492,10 @@ bool ParserSelectQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expected)
     select_query->setExpression(ASTSelectQuery::Expression::INTERPOLATE, std::move(interpolate_expression_list));
 
     // Try to apply Yannakakis algorithm
-    ASTSelectQuery queryCopy = *select_query;
-    YannakakisOptimizer().applyYannakakis(queryCopy);
+    YannakakisOptimizer().applyYannakakis(*select_query);
 
+    std::cout << "query after yannakakis" << std::endl;
+    std::cout << select_query->dumpTree() << std::endl;
     return true;
 }
 
