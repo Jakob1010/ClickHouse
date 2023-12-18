@@ -69,6 +69,7 @@
 #include <Processors/Sources/SourceFromSingleChunk.h>
 #include <Processors/Transforms/AggregatingTransform.h>
 #include <Processors/Transforms/FilterTransform.h>
+#include "Processors/Transforms/Yannakakis/YannakakisOptimizer.h"
 #include <QueryPipeline/QueryPipelineBuilder.h>
 
 #include <Storages/IStorage.h>
@@ -256,9 +257,6 @@ ContextPtr getSubqueryContext(const ContextPtr & context)
 void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, const String & database, const Settings & settings)
 {
     ASTSelectQuery & select = query->as<ASTSelectQuery &>();
-    std::cout << "rewriteMultipleJoins" << std::endl;
-    std::cout << select.dumpTree() << std::endl;
-    std::cout << database << std::endl;
 
     Aliases aliases;
     if (ASTPtr with = select.with())
@@ -269,10 +267,15 @@ void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, cons
     cross_to_inner.cross_to_inner_join_rewrite = static_cast<UInt8>(std::min<UInt64>(settings.cross_to_inner_join_rewrite, 2));
     CrossToInnerJoinVisitor(cross_to_inner).visit(query);
 
+    //YannakakisOptimizer().applyYannakakis(select);
+
     JoinToSubqueryTransformVisitor::Data join_to_subs_data{tables, aliases};
     join_to_subs_data.try_to_keep_original_names = settings.multiple_joins_try_to_keep_original_names;
 
     JoinToSubqueryTransformVisitor(join_to_subs_data).visit(query);
+
+    std::cout << "rewriteMultipleJoins" << std::endl;
+    std::cout << query->dumpTree() << std::endl;
 }
 
 /// Checks that the current user has the SELECT privilege.
@@ -385,11 +388,8 @@ InterpreterSelectQuery::InterpreterSelectQuery(
     , prepared_sets(prepared_sets_)
 {
     std::cout << "InterpreterSelectQuery" << std::endl;
-
-    ASTSelectQuery & select = query_ptr_->as<ASTSelectQuery &>();
-    std::cout << options_.modify_inplace << std::endl;
-    std::cout << select.dumpTree() << std::endl;
     std::cout << getSelectQuery().dumpTree() << std::endl;
+    std::cout << query_ptr->as<ASTSelectQuery &>().dumpTree() << std::endl;
 
     checkStackSize();
 
@@ -511,8 +511,7 @@ InterpreterSelectQuery::InterpreterSelectQuery(
             throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "To use parallel replicas with plain MergeTree tables please enable setting `parallel_replicas_for_non_replicated_merge_tree`");
         }
     }
-    std::cout << "511" << std::endl;
-    std::cout << getSelectQuery().dumpTree() << std::endl;
+
     /// Rewrite JOINs
     if (!has_input && joined_tables.tablesCount() > 1)
     {
@@ -540,8 +539,6 @@ InterpreterSelectQuery::InterpreterSelectQuery(
             storage_snapshot = nullptr;
         }
     }
-    std::cout << "546" << std::endl;
-    std::cout << getSelectQuery().dumpTree() << std::endl;
 
     if (!has_input)
     {

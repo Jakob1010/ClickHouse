@@ -64,6 +64,9 @@ ASTs getJoinPredicates(std::string &leftIdentifier,
                        std::unordered_map<std::string, std::unordered_set<std::string>> &tablesAndPredicates,
                        DisjointSet &ds);
 ASTPtr makeConjunction(const ASTs & nodes);
+ASTPtr makeSubqueryQualifiedAsterisk();
+void setTablesOfSubquery(ASTPtr & subquery, ASTs & tables);
+bool isEquiJoin(ASTs functionArguments);
 /*void removeChild(ASTPtr & parent, const ASTPtr & child);
 */
 }

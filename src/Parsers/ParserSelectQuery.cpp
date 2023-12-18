@@ -494,8 +494,6 @@ bool ParserSelectQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expected)
     // Try to apply Yannakakis algorithm
     YannakakisOptimizer().applyYannakakis(*select_query);
 
-    std::cout << "query after yannakakis" << std::endl;
-    std::cout << select_query->dumpTree() << std::endl;
     return true;
 }
 

@@ -13,6 +13,7 @@
 #include "Parsers/ASTAsterisk.h"
 #include <Parsers/parseQuery.h>
 #include <Parsers/ASTFunction.h>
+#include <Parsers/ASTQualifiedAsterisk.h>
 #include <Parsers/ParserTablesInSelectQuery.h>
 #include <Functions/FunctionsComparison.h>
 #include <Functions/FunctionsLogical.h>
@@ -58,7 +59,9 @@ bool YannakakisOptimizer::applyYannakakis(ASTSelectQuery & select)
 
     // apply Yannakakis algorithm
     ParserTablesInSelectQueryElement parser(true);
-    static ASTPtr subquery_template = parseQuery(parser, "(select * from insert_select_testtable) as `--.s`", 0, DBMS_DEFAULT_MAX_PARSER_DEPTH);
+    static ASTPtr subquery_template = parseQuery(parser, "(select * from _t) as `--.s`", 0, DBMS_DEFAULT_MAX_PARSER_DEPTH);
+    std::cout << "Subquery Template" << std::endl;
+    std::cout << subquery_template->dumpTree() << std::endl;
     bottomUpSemiJoin(select, join_tree, tableWithPredicateNames,
                      tableObjects, predicateObjects, subquery_template, ds);
 
@@ -68,6 +71,8 @@ bool YannakakisOptimizer::applyYannakakis(ASTSelectQuery & select)
     ASTPtr always_true = makeASTFunction("equals", std::make_shared<ASTLiteral>(1), std::make_shared<ASTLiteral>(1));
     select.setExpression(ASTSelectQuery::Expression::WHERE, std::move(always_true));
 
+    std::cout << "Optimized Query" << std::endl;
+    std::cout << select.dumpTree() << std::endl;
     std::cout << "applyYannakakis() finished" << std::endl;
     return true;
 }
@@ -169,12 +174,12 @@ ASTPtr buildJoinTreeRec(std::string &leftIdentifier,
     std::cout << "buildJoinTreeRec()" << std::endl;
     std::cout << leftIdentifier << std::endl;
     ASTPtr subquery = subquery_template->clone();
-
     ASTPtr leftTable = tableObjects[leftIdentifier];
-
     ASTs new_children;
     new_children.push_back(leftTable);
+
     for(std::string &rightIdentifier : adjacent[leftIdentifier]) {
+        std::cout << rightIdentifier << std::endl;
         ASTPtr neighborPtr = tableObjects[rightIdentifier];
         ASTPtr right;
         std::cout << neighborPtr->as<ASTTablesInSelectQueryElement>()->dumpTree() << std::endl;
@@ -200,19 +205,34 @@ ASTPtr buildJoinTreeRec(std::string &leftIdentifier,
             join_ast->on_expression = makeConjunction(join_predicates);
             join_ast->children.emplace_back(join_ast->on_expression);
         }
-
         // add join
         rightTable->table_join = join_ast;
         rightTable->children.emplace_back(join_ast);
         new_children.push_back(right);
     }
-    subquery->children = new_children;
+
+    setTablesOfSubquery(subquery, new_children);
     std::cout << "Subquery" << std::endl;
     std::cout << subquery->dumpTree() << std::endl;
 
-    select.tables()->as<ASTTablesInSelectQuery>()->children = new_children;
     return subquery;
 }
+
+void setTablesOfSubquery(ASTPtr & subquery, ASTs & tables) {
+    if (!subquery)
+        return;
+
+    if(subquery->as<ASTTablesInSelectQuery>()) {
+        std::cout << "Found it bitch!" << std::endl;
+        subquery->children = tables;
+    }
+
+    for (auto & childElement: subquery->children) {
+        setTablesOfSubquery(childElement, tables);
+    }
+}
+
+
 
 void bottomUpSemiJoin(ASTSelectQuery & select,
                       std::unordered_map<std::string, std::vector<std::string>> &join_tree,
@@ -256,6 +276,22 @@ void bottomUpSemiJoin(ASTSelectQuery & select,
     std::cout << root << std::endl;
     ASTPtr rootObject = tableObjects[root];
     ASTPtr subQuery = buildJoinTreeRec(root, select, tableObjects, predicateObjects, tablesAndPredicates, adjacent, subquery_template, ds);
+    ASTs new_children;
+    new_children.push_back(subQuery);
+    select.tables()->as<ASTTablesInSelectQuery>()->children = new_children;
+
+    // make asterix for subquery
+    auto expression_list = std::make_shared<ASTExpressionList>();
+    expression_list->children.emplace_back(makeSubqueryQualifiedAsterisk());
+    select.setExpression(ASTSelectQuery::Expression::SELECT, std::move(expression_list));
+}
+
+ASTPtr makeSubqueryQualifiedAsterisk()
+{
+    auto asterisk = std::make_shared<ASTQualifiedAsterisk>();
+    asterisk->qualifier = std::make_shared<ASTIdentifier>("--.s");
+    asterisk->children.push_back(asterisk->qualifier);
+    return asterisk;
 }
 
 void addTableAndPredicateFromIdentifier(std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
@@ -270,7 +306,29 @@ void addTableAndPredicateFromIdentifier(std::unordered_map<std::string, std::uno
         }
 }
 
+std::pair<std::string, std::string> splitIdentifier(const std::string& identifier)
+{
+    size_t dotPos = identifier.find('.');
+    if (dotPos != std::string::npos)
+    {
+        std::string table = identifier.substr(0, dotPos);
+        std::string predicate = identifier.substr(dotPos + 1);
+        return {table, predicate};
+    }
+    // If there's no dot
+    return {"", identifier};
+}
 
+bool isEquiJoin(ASTs functionArguments) {
+    try {
+        getIdentifierName(functionArguments[0]);
+        getIdentifierName(functionArguments[1]);
+        return true;
+    } catch(const DB::Exception& e) {
+        std::cout << e.what() << std::endl;
+        return false;
+    }
+}
 
 void collectTablesAndPredicates(ASTSelectQuery & select,
                                 std::unordered_map<std::string, std::unordered_set<std::string>> &tablesAndPredicates,
@@ -279,28 +337,11 @@ void collectTablesAndPredicates(ASTSelectQuery & select,
                                 std::unordered_map<std::string, ASTPtr> &predicates)
 {
     std::cout << "collectTablesAndPredicates()" << std::endl;
+    // join tables and predicates can be found in
+    // FROM clause and WHERE clause
 
-    // collect predicates from where clause
-    std::cout << "collectPredicates()" << std::endl;
-    if (select.where()) {
-        for (const std::shared_ptr<IAST> node: splitConjunctionsAst(select.where())) {
-                if (const auto * func = node->as<ASTFunction>())
-                {
-                    if (!func->arguments || func->arguments->children.size() != 2 || func->name != NameEquals::name)
-                        continue;
-                    const std::string identifierName1 = getIdentifierName(func->arguments->children[0]);
-                    const std::string identifierName2 = getIdentifierName(func->arguments->children[1]);
-                    addTableAndPredicateFromIdentifier(tablesAndPredicates, identifierName1);
-                    addTableAndPredicateFromIdentifier(tablesAndPredicates, identifierName2);
-                    ds.unionSets(identifierName1, identifierName2);
-                    predicates[identifierName1] = func->arguments->children[0]->clone();
-                    predicates[identifierName2] = func->arguments->children[1]->clone();
-                }
-        }
-    }
-
-    // collect tables
-    std::cout << "collectTables()" << std::endl;
+    // collect FROM
+    std::cout << "collect FROM" << std::endl;
     auto * ast_tables = select.tables()->as<ASTTablesInSelectQuery>();
     std::unordered_map<std::string, ASTPtr> tables;
     for (size_t i = 0; i < ast_tables->children.size(); ++i)
@@ -314,15 +355,51 @@ void collectTablesAndPredicates(ASTSelectQuery & select,
             table->table_join = nullptr;
         }
 
-
         for (const auto& identifier : table->table_expression->children) {
             const std::string tableName = getIdentifierName(identifier);
             tablesAndPredicates[tableName];
-            //ASTPtr tableClonePtr = ast_tables->children[i]->clone();
-            //auto * tableClone = tableClonePtr->as<ASTTablesInSelectQueryElement>();
             tableObjects[tableName] = ast_tables->children[i];
         }
     }
+
+    // collect WHERE
+    std::cout << "collect WHERE" << std::endl;
+    if (select.where()) {
+        for (const std::shared_ptr<IAST> node: splitConjunctionsAst(select.where())) {
+                if (const auto * func = node->as<ASTFunction>())
+                {
+                    if (!func->arguments || func->arguments->children.size() != 2 || func->name != NameEquals::name)
+                        continue;
+
+                    if (!isEquiJoin(func->arguments->children))
+                        continue; // TODO: add other predicates like a=5
+                    else
+                        std::cout << "add predicate" << std::endl;
+
+                    const std::string identifierLeft = getIdentifierName(func->arguments->children[0]);
+                    const std::string identifierRight = getIdentifierName(func->arguments->children[1]);
+                    auto identifierLeftSplit = splitIdentifier(identifierLeft);
+                    auto identifierRightSplit = splitIdentifier(identifierRight);
+
+                    // make it an equivalent class if there is a join
+                    if (tablesAndPredicates.count(identifierLeftSplit.first) > 0
+                        && tablesAndPredicates.count(identifierRightSplit.first) > 0)
+                        ds.unionSets(identifierLeft, identifierRight);
+                    else
+                        continue; // TODO: add other predicates like a="a"
+
+                    // store for every table identifier all of its join predicates
+                    // identifierSplit contains table as .first and predicate as .second
+                    tablesAndPredicates[identifierLeftSplit.first].insert(identifierLeftSplit.second);
+                    tablesAndPredicates[identifierRightSplit.first].insert(identifierRightSplit.second);
+
+                    // map table.predicate identifier to table.predicate
+                    predicates[identifierLeft] = func->arguments->children[0]->clone();
+                    predicates[identifierRight] = func->arguments->children[1]->clone();
+                }
+        }
+    }
+
 }
 
 void gyoReduction(std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
@@ -425,15 +502,11 @@ void gyoReduction(std::unordered_map<std::string, std::unordered_set<std::string
 
 ASTPtr makeSubqueryTemplate(const String & table_alias)
 {
-    std::cout << "1" << std::endl;
     ParserTablesInSelectQueryElement parser(true);
-    std::cout << "1" << std::endl;
     String query_template = "(select * from _t)";
     if (!table_alias.empty())
         query_template += " as " + table_alias;
-    std::cout << "1" << std::endl;
     ASTPtr subquery_template = parseQuery(parser, "(select * from _t) as --.s", 100000000, 1000);
-    std::cout << "1" << std::endl;
     if (!subquery_template)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Cannot parse subquery template");
 
