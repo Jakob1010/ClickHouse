@@ -61,7 +61,6 @@ bool bfsAnd(const ASTPtr & root, std::function<bool(ASTFunction &, const ASTPtr 
 ASTPtr makeSubqueryTemplate(const String & table_alias);
 ASTPtr buildJoinTreeRec(
     std::string & nodeIdentifier,
-    ASTSelectQuery & select,
     std::unordered_map<std::string, ASTPtr> & tableObjects,
     std::unordered_map<std::string, ASTPtr> & predicateObjects,
     std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
@@ -76,12 +75,17 @@ ASTs getJoinPredicates(
     std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
     DisjointSet & ds);
 ASTPtr makeConjunction(const ASTs & nodes);
-ASTPtr makeSubqueryQualifiedAsterisk(int & subQueryCnt);
+ASTPtr makeSubqueryQualifiedAsterisk(const std::string & identifier);
+void addSelectionPredicatesOfTable(std::string & tableIdentifier, ASTs & whereSubquery,
+                                   std::unordered_map<std::string, std::vector<ASTPtr>> & allPredicates);
 void setTablesOfSubquery(ASTPtr & subquery, ASTs & tables);
+void setSelectionOfSubquery(ASTPtr & subquery, ASTs & selectionPredicates);
 void removeJoin(ASTSelectQuery & select);
 bool isEquiJoin(ASTs functionArguments);
 bool isIdentifier(const ASTPtr & ast);
 std::string extractTableAliasAfterAS(const std::string& input);
+void rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree, const std::string &newRoot);
+void setASTSelectQuery(ASTPtr & subquery, ASTSelectQuery & selectQuery);
 /*void removeChild(ASTPtr & parent, const ASTPtr & child);
 */
 }

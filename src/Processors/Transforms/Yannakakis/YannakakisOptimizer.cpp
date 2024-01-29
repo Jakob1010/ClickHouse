@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <algorithm>
 #include <vector>
 #include <Functions/FunctionsComparison.h>
 #include <Functions/FunctionsLogical.h>
@@ -64,9 +65,8 @@ bool YannakakisOptimizer::applyYannakakis(ASTSelectQuery & select)
     if (gyoReduction(tableWithPredicateNames, join_tree, ds))
         removeJoin(select);
 
-    // get topological ordering
-    std::vector<std::string> ordering;
-    computeTopologicalOrdering(join_tree, ordering);
+    // reroot based on selected attributes
+    rerootTree(join_tree, "t");
 
     // apply Yannakakis algorithm
     bottomUpSemiJoin(select, join_tree, tableWithPredicateNames, tableObjects,
@@ -165,11 +165,11 @@ ASTs getJoinPredicates(
     {
         for (const auto & rightElement : tablesAndPredicates[rightTableIdentifier])
         {
-            std::cout << "Compare" << std::endl;
-            std::cout << leftElement << std::endl;
-            std::cout << rightElement << std::endl;
             if (ds.find(leftTableIdentifier + "." + leftElement) == ds.find(rightTableIdentifier + "." + rightElement))
             {
+                std::cout << "match" << std::endl;
+                std::cout << leftElement << std::endl;
+                std::cout << rightElement << std::endl;
                 ASTPtr rightJoinPredicate = predicateObjects[rightTableIdentifier + "." + rightElement];
                 ASTPtr leftJoinPredicate = predicateObjects[leftTableIdentifier + "." + leftElement];
 
@@ -189,7 +189,6 @@ ASTs getJoinPredicates(
 
 ASTPtr buildJoinTreeRec(
     std::string & leftIdentifier,
-    ASTSelectQuery & select,
     std::unordered_map<std::string, ASTPtr> & tableObjects,
     std::unordered_map<std::string, ASTPtr> & predicateObjects,
     std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
@@ -200,21 +199,18 @@ ASTPtr buildJoinTreeRec(
 {
     std::cout << "buildJoinTreeRec()" << std::endl;
     std::cout << leftIdentifier << std::endl;
-    ASTPtr subquery = makeSubqueryTemplate("sub"+std::to_string(subQueryCnt));
-    if (auto * ident = subquery->as<ASTIdentifier>()) {
-        std::cout << "rename sub" << std::endl;
-        std::cout << ident->name() << std::endl;
-        ident->setAlias("sub"+std::to_string(subQueryCnt));
-        std::cout << ident->name() << std::endl;
-    }
-    ASTPtr leftTable = tableObjects[leftIdentifier];
+    const std::string subqueryName = "sub"+std::to_string(subQueryCnt);
+    ASTPtr subquery = makeSubqueryTemplate(subqueryName);
     ASTs new_children;
-    ASTs whereFilter;
-    new_children.push_back(leftTable);
-    if (selectionPredicates.contains(leftIdentifier))
-        for (auto & wherePredicate : selectionPredicates[leftIdentifier])
-            whereFilter.push_back(wherePredicate);
 
+    // add current root (left)
+    ASTPtr leftTable = tableObjects[leftIdentifier];
+    new_children.push_back(leftTable);
+
+    ASTs whereFilter;
+    addSelectionPredicatesOfTable(leftIdentifier, whereFilter, selectionPredicates);
+
+    // add direct neighbors of "leftIdentifier"
     for (std::string & rightIdentifier : adjacent[leftIdentifier])
     {
         std::cout << rightIdentifier << std::endl;
@@ -227,12 +223,13 @@ ASTPtr buildJoinTreeRec(
         if (!adjacent.contains(rightIdentifier) || adjacent[rightIdentifier].size() == 0)
         {
             right = tableObjects[rightIdentifier];
+            addSelectionPredicatesOfTable(rightIdentifier, whereFilter, selectionPredicates);
         }
         else
         {
             subQueryCnt+=1;
             right = buildJoinTreeRec(
-                rightIdentifier, select, tableObjects, predicateObjects, tablesAndPredicates,
+                rightIdentifier, tableObjects, predicateObjects, tablesAndPredicates,
                 adjacent, ds, selectionPredicates, subQueryCnt);
             rightJoinPredicateName = "sub"+std::to_string(subQueryCnt);
         }
@@ -256,21 +253,130 @@ ASTPtr buildJoinTreeRec(
         rightTable->table_join = join_ast;
         rightTable->children.emplace_back(join_ast);
         new_children.push_back(right);
-
-        // check if table has selection predicates
-        if (selectionPredicates.contains(rightIdentifier))
-            for (auto & wherePredicate : selectionPredicates[rightIdentifier])
-                whereFilter.push_back(wherePredicate);
     }
 
+    ASTSelectQuery selectOfSubquery;
+    setASTSelectQuery(subquery, selectOfSubquery);
+
+    // set select
+    auto expression_list = std::make_shared<ASTExpressionList>();
+    expression_list->children.emplace_back(makeSubqueryQualifiedAsterisk(leftIdentifier));
+    selectOfSubquery.setExpression(ASTSelectQuery::Expression::SELECT, std::move(expression_list));
+
+    // set from
     setTablesOfSubquery(subquery, new_children);
-    // todo: set where filter
+
+    // set where
+    if (whereFilter.size() >= 1)
+        setSelectionOfSubquery(subquery, whereFilter);
+
     std::cout << "Subquery" << std::endl;
     std::cout << subquery->dumpTree() << std::endl;
-    std::cout << "whereFilterSize" << std::endl;
-    std::cout << whereFilter.size() << std::endl;
 
     return subquery;
+}
+
+void addSelectionPredicatesOfTable(std::string & tableIdentifier, ASTs & whereSubquery,
+                                   std::unordered_map<std::string, std::vector<ASTPtr>> & allPredicates) {
+    if (allPredicates.contains(tableIdentifier))
+        for (auto & wherePredicate : allPredicates[tableIdentifier])
+            whereSubquery.push_back(wherePredicate);
+}
+
+void rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree, const std::string &newRoot) {
+    std::cout << "rerootTree() with " << newRoot << std::endl;
+
+    // join_tree only stores parent->children relationship,
+    // but we also need children -> parent for reroot
+    std::unordered_map<std::string, std::vector<std::string>> parents;
+
+    // create parent relationship
+    for (const auto & kv : join_tree)
+    {
+        const std::string & parent = kv.first;
+        const std::vector<std::string> & children = kv.second;
+        for (const std::string & child : children)
+            parents[child].push_back(parent);
+    }
+
+    // Perform rerooting
+    std::string current = newRoot;
+    while (parents.contains(current)) { // newRoot is already root (has no parents)
+        const std::string& p = parents[current][0]; // Each child has only one parent
+
+        // remove current form child list of parent
+        join_tree[p].erase(std::remove(join_tree[p].begin(), join_tree[p].end(), current), join_tree[p].end());
+
+        // add parent as child from current
+        join_tree[current].push_back(p);
+
+        current = p;
+    }
+
+    std::cout << "Rerooted Join Tree" << std::endl;
+    for (const auto & kv : join_tree)
+    {
+        const std::string & edge = kv.first;
+        const std::vector<std::string> & neighbors = kv.second;
+        std::cout << "Edge: " << edge << ", Neighbors: ";
+        for (const std::string & neighbor : neighbors)
+            std::cout << neighbor << " ";
+        std::cout << std::endl;
+    }
+
+}
+
+void setASTSelectQuery(ASTPtr & subquery, ASTSelectQuery & selectQuery) {
+    if (!subquery)
+        return;
+
+    if (subquery->as<ASTSelectQuery>())
+    {
+        std::cout << "setASTSelectQuery()" << std::endl;
+        selectQuery = *subquery->as<ASTSelectQuery>();
+        return;
+    }
+
+    for (auto & childElement : subquery->children)
+        setASTSelectQuery(childElement, selectQuery);
+
+}
+
+void setProjectionOfSubquery(ASTPtr & subquery) {
+
+    if (!subquery)
+        return;
+
+    if (subquery->as<ASTSelectQuery>())
+    {
+        auto select_expr_list = std::make_shared<ASTExpressionList>();
+
+        auto select_query = std::make_shared<ASTSelectQuery>();
+        select_query->children.push_back(select_expr_list);
+
+        select_query->setExpression(ASTSelectQuery::Expression::SELECT, select_expr_list);
+        return;
+    }
+
+    for (auto & childElement : subquery->children)
+        setProjectionOfSubquery(childElement);
+}
+
+
+void setSelectionOfSubquery(ASTPtr & subquery, ASTs & selectionPredicates)
+{
+    if (!subquery)
+        return;
+
+    if (subquery->as<ASTSelectQuery>())
+    {
+        std::cout << "set where" << std::endl;
+        subquery->as<ASTSelectQuery>()->setExpression(ASTSelectQuery::Expression::WHERE, makeConjunction(selectionPredicates));
+        return;
+    }
+
+    for (auto & childElement : subquery->children)
+        setSelectionOfSubquery(childElement, selectionPredicates);
 }
 
 void setTablesOfSubquery(ASTPtr & subquery, ASTs & tables)
@@ -336,7 +442,7 @@ void bottomUpSemiJoin(
     std::cout << root << std::endl;
     ASTPtr rootObject = tableObjects[root];
     int subQueryCnt = 0;
-    ASTPtr subQuery = buildJoinTreeRec(root, select, tableObjects, predicateObjects, tablesAndPredicates,
+    ASTPtr subQuery = buildJoinTreeRec(root, tableObjects, predicateObjects, tablesAndPredicates,
                                        join_tree, ds, selectionPredicates, subQueryCnt);
     ASTs new_children;
     new_children.push_back(subQuery);
@@ -344,14 +450,15 @@ void bottomUpSemiJoin(
 
     // make asterix for subquery
     auto expression_list = std::make_shared<ASTExpressionList>();
-    expression_list->children.emplace_back(makeSubqueryQualifiedAsterisk(subQueryCnt));
-    select.setExpression(ASTSelectQuery::Expression::SELECT, std::move(expression_list));
+    const std::string subqueryName = "sub"+std::to_string(0);
+    expression_list->children.emplace_back(makeSubqueryQualifiedAsterisk(subqueryName));
+    //select.setExpression(ASTSelectQuery::Expression::SELECT, std::move(expression_list));
 }
 
-ASTPtr makeSubqueryQualifiedAsterisk(int & subQueryCnt)
+ASTPtr makeSubqueryQualifiedAsterisk(const std::string & identifier)
 {
     auto asterisk = std::make_shared<ASTQualifiedAsterisk>();
-    asterisk->qualifier = std::make_shared<ASTIdentifier>("sub" + std::to_string(subQueryCnt));
+    asterisk->qualifier = std::make_shared<ASTIdentifier>(identifier);
     asterisk->children.push_back(asterisk->qualifier);
     return asterisk;
 }
@@ -548,6 +655,7 @@ void collectSelectionPredicate(
     else
         std::cout << "collectSelectionPredicate -> predicate added" << std::endl;
 }
+
 
 bool gyoReduction(
     std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
