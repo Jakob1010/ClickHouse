@@ -78,6 +78,8 @@
 #include <Parsers/Kusto/ParserKQLStatement.h>
 #include <Parsers/PRQL/ParserPRQLQuery.h>
 
+#include "Processors/Transforms/Yannakakis/YannakakisOptimizer.h"
+
 namespace ProfileEvents
 {
     extern const Event FailedQuery;
@@ -1034,6 +1036,28 @@ static std::tuple<ASTPtr, BlockIO> executeQueryImpl(
                 interpreter = InterpreterFactory::get(ast, context, SelectQueryOptions(stage).setInternal(internal));
 
                 const auto & query_settings = context->getSettingsRef();
+
+                // semi join reduction
+                if (query_settings.yannakakis_optimizer) {
+                    std::cout << "yannakakis_optimizer activated" << std::endl;
+                    ASTPtr select_query = ast;
+                    if (auto select_with_union_query = std::dynamic_pointer_cast<ASTSelectWithUnionQuery>(ast)) {
+                        if (!select_with_union_query->children.empty() &&
+                            !select_with_union_query->children[0]->children.empty()) {
+                            select_query = select_with_union_query->children[0]->children[0];
+                        }
+                    }
+
+                    if (auto select_query_ast = std::dynamic_pointer_cast<ASTSelectQuery>(select_query)) {
+                        std::cout << "it worked!" << std::endl;
+                        std::cout << select_query->dumpTree() << std::endl;
+                        //YannakakisOptimizer().applyYannakakis(*select_query_ast);
+                    }
+                }
+                else {
+                    std::cout << "yannakakis_optimizer deactivated" << std::endl;
+                }
+
                 if (context->getCurrentTransaction() && query_settings.throw_on_unsupported_query_inside_transaction)
                 {
                     if (!interpreter->supportsTransactions())
