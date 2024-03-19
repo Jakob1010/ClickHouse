@@ -84,7 +84,7 @@ void removeJoin(ASTSelectQuery & select);
 bool isEquiJoin(ASTs functionArguments);
 bool isIdentifier(const ASTPtr & ast);
 std::string extractTableAliasAfterAS(const std::string& input);
-void rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree, const std::string &newRoot);
+bool rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree, ASTSelectQuery & selectQuery);
 void setASTSelectQuery(ASTPtr & subquery, ASTSelectQuery & selectQuery);
 /*void removeChild(ASTPtr & parent, const ASTPtr & child);
 */

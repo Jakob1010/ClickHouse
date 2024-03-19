@@ -40,11 +40,9 @@ bool YannakakisOptimizer::applyYannakakis(ASTSelectQuery & select)
 {
     if (!select.tables())
         return false;
-    if (select.tables()->as<ASTTablesInSelectQuery>()->children.size() < 2)
+    if (select.tables()->as<ASTTablesInSelectQuery>()->children.size() < 3)
         return false;
-
     std::cout << "applyYannakakis()" << std::endl;
-    std::cout << select.dumpTree() << std::endl;
 
 
     // stores tables and their predicates
@@ -58,29 +56,27 @@ bool YannakakisOptimizer::applyYannakakis(ASTSelectQuery & select)
 
     // get tables and predicates
     collectTablesAndPredicates(select, tableWithPredicateNames, ds, tableObjects, predicateObjects, selectionObjects);
-    printTablesAndPredicates(tableWithPredicateNames);
 
     // gyo reduction
     std::unordered_map<std::string, std::vector<std::string>> join_tree;
     if (gyoReduction(tableWithPredicateNames, join_tree, ds))
-        removeJoin(select);
+        removeJoin(select); // remove old joins
+    else
+        return false; // query is cyclic -> yannakakis can not be applied
 
     // reroot based on selected attributes
-    rerootTree(join_tree, "t");
+    if(!rerootTree(join_tree, select))
+        return false;
 
     // apply Yannakakis algorithm
     bottomUpSemiJoin(select, join_tree, tableWithPredicateNames, tableObjects,
                      predicateObjects, ds, selectionObjects);
 
-    ds.dumpSet();
-
     // Overwrite WHERE statement
     ASTPtr always_true = makeASTFunction("equals", std::make_shared<ASTLiteral>(1), std::make_shared<ASTLiteral>(1));
     select.setExpression(ASTSelectQuery::Expression::WHERE, std::move(always_true));
 
-    std::cout << "Optimized Query" << std::endl;
     std::cout << select.dumpTree() << std::endl;
-    std::cout << "applyYannakakis() finished" << std::endl;
     return true;
 }
 
@@ -88,6 +84,7 @@ void computeTopologicalOrdering(std::unordered_map<std::string, std::vector<std:
 {
     if (join_tree.size() != 0)
         return;
+
     std::cout << "computeTopologicalOrdering()" << std::endl;
     std::unordered_map<std::string, int> incomingCnt; // holds count of incoming edges
     std::unordered_map<std::string, std::vector<std::string>> adjacent; // (node x) -> (directed edge) -> (node y)
@@ -167,15 +164,11 @@ ASTs getJoinPredicates(
         {
             if (ds.find(leftTableIdentifier + "." + leftElement) == ds.find(rightTableIdentifier + "." + rightElement))
             {
-                std::cout << "match" << std::endl;
-                std::cout << leftElement << std::endl;
-                std::cout << rightElement << std::endl;
                 ASTPtr rightJoinPredicate = predicateObjects[rightTableIdentifier + "." + rightElement];
                 ASTPtr leftJoinPredicate = predicateObjects[leftTableIdentifier + "." + leftElement];
 
                 // Need to adapt join predicate name because it now comes from the subquery
                     if (rightTableIdentifier != rightJoinPredicateName) {
-                        std::cout << "need to change tablename to subquery" << std::endl;
                         rightJoinPredicate = std::make_shared<ASTIdentifier>(std::vector<String>{rightJoinPredicateName, rightElement});
                     }
                 auto equal_function = makeASTFunction(
@@ -197,9 +190,9 @@ ASTPtr buildJoinTreeRec(
     std::unordered_map<std::string, std::vector<ASTPtr>> & selectionPredicates,
     int & subQueryCnt)
 {
-    std::cout << "buildJoinTreeRec()" << std::endl;
-    std::cout << leftIdentifier << std::endl;
-    const std::string subqueryName = "sub"+std::to_string(subQueryCnt);
+    // for outermost subquery we use the root (leftIdentifier) so that SELECT statement can stay the same
+    // SELECT MIN(t.title) FROM title t -> SELECT MIN(t.title) FROM (SELECT ...) AS t
+    const std::string subqueryName = (subQueryCnt != 0 ? "sub"+std::to_string(subQueryCnt) : leftIdentifier);
     ASTPtr subquery = makeSubqueryTemplate(subqueryName);
     ASTs new_children;
 
@@ -217,7 +210,6 @@ ASTPtr buildJoinTreeRec(
         ASTPtr neighborPtr = tableObjects[rightIdentifier];
         ASTPtr right;
         std::string rightJoinPredicateName = rightIdentifier;
-        std::cout << neighborPtr->as<ASTTablesInSelectQueryElement>()->dumpTree() << std::endl;
 
         // check if neighbor is leaf node
         if (!adjacent.contains(rightIdentifier) || adjacent[rightIdentifier].size() == 0)
@@ -239,8 +231,7 @@ ASTPtr buildJoinTreeRec(
         auto join_ast = std::make_shared<ASTTableJoin>();
         ASTs join_predicates = getJoinPredicates(leftIdentifier, rightIdentifier, rightJoinPredicateName,
                                                  predicateObjects, tablesAndPredicates, ds);
-        std::cout << "Number of Join Predicates" << std::endl;
-        std::cout << join_predicates.size() << std::endl;
+
         if (join_predicates.empty())
             join_ast->kind = JoinKind::Cross;
         else {
@@ -270,8 +261,8 @@ ASTPtr buildJoinTreeRec(
     if (whereFilter.size() >= 1)
         setSelectionOfSubquery(subquery, whereFilter);
 
-    std::cout << "Subquery" << std::endl;
-    std::cout << subquery->dumpTree() << std::endl;
+    //std::cout << "Subquery" << std::endl;
+    //std::cout << subquery->dumpTree() << std::endl;
 
     return subquery;
 }
@@ -283,56 +274,12 @@ void addSelectionPredicatesOfTable(std::string & tableIdentifier, ASTs & whereSu
             whereSubquery.push_back(wherePredicate);
 }
 
-void rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree, const std::string &newRoot) {
-    std::cout << "rerootTree() with " << newRoot << std::endl;
-
-    // join_tree only stores parent->children relationship,
-    // but we also need children -> parent for reroot
-    std::unordered_map<std::string, std::vector<std::string>> parents;
-
-    // create parent relationship
-    for (const auto & kv : join_tree)
-    {
-        const std::string & parent = kv.first;
-        const std::vector<std::string> & children = kv.second;
-        for (const std::string & child : children)
-            parents[child].push_back(parent);
-    }
-
-    // Perform rerooting
-    std::string current = newRoot;
-    while (parents.contains(current)) { // newRoot is already root (has no parents)
-        const std::string& p = parents[current][0]; // Each child has only one parent
-
-        // remove current form child list of parent
-        join_tree[p].erase(std::remove(join_tree[p].begin(), join_tree[p].end(), current), join_tree[p].end());
-
-        // add parent as child from current
-        join_tree[current].push_back(p);
-
-        current = p;
-    }
-
-    std::cout << "Rerooted Join Tree" << std::endl;
-    for (const auto & kv : join_tree)
-    {
-        const std::string & edge = kv.first;
-        const std::vector<std::string> & neighbors = kv.second;
-        std::cout << "Edge: " << edge << ", Neighbors: ";
-        for (const std::string & neighbor : neighbors)
-            std::cout << neighbor << " ";
-        std::cout << std::endl;
-    }
-
-}
-
 void setASTSelectQuery(ASTPtr & subquery, ASTSelectQuery & selectQuery) {
     if (!subquery)
         return;
 
     if (subquery->as<ASTSelectQuery>())
     {
-        std::cout << "setASTSelectQuery()" << std::endl;
         selectQuery = *subquery->as<ASTSelectQuery>();
         return;
     }
@@ -370,7 +317,6 @@ void setSelectionOfSubquery(ASTPtr & subquery, ASTs & selectionPredicates)
 
     if (subquery->as<ASTSelectQuery>())
     {
-        std::cout << "set where" << std::endl;
         subquery->as<ASTSelectQuery>()->setExpression(ASTSelectQuery::Expression::WHERE, makeConjunction(selectionPredicates));
         return;
     }
@@ -386,7 +332,6 @@ void setTablesOfSubquery(ASTPtr & subquery, ASTs & tables)
 
     if (subquery->as<ASTTablesInSelectQuery>())
     {
-        std::cout << "Found it bitch!" << std::endl;
         subquery->children = tables;
         return;
     }
@@ -438,8 +383,6 @@ void bottomUpSemiJoin(
         }
     }
 
-    std::cout << "root" << std::endl;
-    std::cout << root << std::endl;
     ASTPtr rootObject = tableObjects[root];
     int subQueryCnt = 0;
     ASTPtr subQuery = buildJoinTreeRec(root, tableObjects, predicateObjects, tablesAndPredicates,
@@ -449,10 +392,9 @@ void bottomUpSemiJoin(
     select.tables()->as<ASTTablesInSelectQuery>()->children = new_children;
 
     // make asterix for subquery
-    auto expression_list = std::make_shared<ASTExpressionList>();
-    const std::string subqueryName = "sub"+std::to_string(0);
-    expression_list->children.emplace_back(makeSubqueryQualifiedAsterisk(subqueryName));
-    //select.setExpression(ASTSelectQuery::Expression::SELECT, std::move(expression_list));
+    // auto expression_list = std::make_shared<ASTExpressionList>();
+    // const std::string subqueryName = "sub"+std::to_string(0);
+    // expression_list->children.emplace_back(makeSubqueryQualifiedAsterisk(subqueryName));
 }
 
 ASTPtr makeSubqueryQualifiedAsterisk(const std::string & identifier)
@@ -486,6 +428,80 @@ std::pair<std::string, std::string> splitIdentifier(const std::string & identifi
     }
     // If there's no dot
     return {"", identifier};
+}
+
+// all columns selected must come from one table which is the root
+bool rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree,
+                ASTSelectQuery & select) {
+    std::cout << "rerootTree()" << std::endl;
+
+    std::string newRoot = "";
+    for (auto & top_level_child : select.select()->children)
+    {
+        std::string query = queryToString(top_level_child);
+        size_t start_pos = query.find("(")+1;
+        size_t end_pos = query.find('.', start_pos);
+
+        if (start_pos == std::string::npos or end_pos == std::string::npos)
+        {
+            std::cout << "attribute in selection needs table identifier" << std::endl;
+            return false;
+        }
+
+        std::string tableIdentifier = query.substr(start_pos, end_pos - start_pos);
+        if (newRoot != "" and newRoot != tableIdentifier)
+        {
+            std::cout << "attributes in selection must all be from same table" << std::endl;
+            return false;
+        }
+
+        newRoot = tableIdentifier;
+        std::cout << tableIdentifier << std::endl;
+    }
+
+
+    std::cout << "rerootTree() with " << newRoot << std::endl;
+
+    // join_tree only stores parent->children relationship,
+    // but we also need children -> parent for reroot
+    std::unordered_map<std::string, std::vector<std::string>> parents;
+
+    // create parent relationship
+    for (const auto & kv : join_tree)
+    {
+        const std::string & parent = kv.first;
+        const std::vector<std::string> & children = kv.second;
+        for (const std::string & child : children)
+            parents[child].push_back(parent);
+    }
+
+    // Perform rerooting
+    std::string current = newRoot;
+    while (parents.contains(current)) { // newRoot is already root (has no parents)
+        const std::string& p = parents[current][0]; // Each child has only one parent
+
+        // remove current form child list of parent
+        join_tree[p].erase(std::remove(join_tree[p].begin(), join_tree[p].end(), current), join_tree[p].end());
+
+        // add parent as child from current
+        join_tree[current].push_back(p);
+
+        current = p;
+    }
+
+    /*
+     * std::cout << "Rerooted Join Tree" << std::endl;
+    for (const auto & kv : join_tree)
+    {
+        const std::string & edge = kv.first;
+        const std::vector<std::string> & neighbors = kv.second;
+        std::cout << "Edge: " << edge << ", Neighbors: ";
+        for (const std::string & neighbor : neighbors)
+            std::cout << neighbor << " ";
+        std::cout << std::endl;
+    }
+     */
+    return true;
 }
 
 bool isIdentifier(const ASTPtr & ast) {
@@ -523,7 +539,7 @@ std::string extractTableAliasAfterAS(const std::string& query) {
 }
 
 void removeJoin(ASTSelectQuery & select) {
-    std::cout << "removeJoins()" << std::endl;
+    //std::cout << "removeJoins()" << std::endl;
     auto * ast_tables = select.tables()->as<ASTTablesInSelectQuery>();
     std::unordered_map<std::string, ASTPtr> tables;
     for (size_t i = 0; i < ast_tables->children.size(); ++i)
@@ -564,9 +580,9 @@ void collectTablesAndPredicates(
             continue;
 
         // set table object with table alias as key
-        std::cout << "found table" << std::endl;
+        //std::cout << "found table" << std::endl;
         std::string tableName = extractTableAliasAfterAS(queryToString(*(table)));
-        std::cout << tableName << std::endl;
+        //std::cout << tableName << std::endl;
         tablesAndPredicates[tableName];
         tableObjects[tableName] = ast_tables->children[i];
     }
@@ -585,7 +601,6 @@ void collectTablesAndPredicates(
 
                 if (!isIdentifier(func->arguments->children[0]) || !isIdentifier(func->arguments->children[1])) {
                     // add selection predicate of type a=5
-                    std::cout << node->dumpTree() << std::endl;
                     collectSelectionPredicate(node, func->arguments->children, tablesAndPredicates, selectionPredicates);
                     continue; // no join
                 }
@@ -600,7 +615,6 @@ void collectTablesAndPredicates(
                     ds.unionSets(identifierLeft, identifierRight);
                 else {
                     // add selection predicate of type a="a"
-                    std::cout << node->dumpTree() << std::endl;
                     collectSelectionPredicate(node, func->arguments->children, tablesAndPredicates, selectionPredicates);
                     continue; // no join
                 }
