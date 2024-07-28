@@ -854,7 +854,7 @@ static std::tuple<ASTPtr, BlockIO> executeQueryImpl(
         }
 
         /// Check the limits.
-        checkASTSizeLimits(*ast, settings);
+        checkASTSizeLimits(*ast, settings);           
 
         /// semi join reduction
         const auto & query_settings = context->getSettingsRef();
@@ -1103,6 +1103,8 @@ static std::tuple<ASTPtr, BlockIO> executeQueryImpl(
                     }
 
                     res = interpreter->execute();
+
+                    std::cout << ast->dumpTree() << std::endl;
 
                     /// If it is a non-internal SELECT query, and active (write) use of the query cache is enabled, then add a processor on
                     /// top of the pipeline which stores the result in the query cache.

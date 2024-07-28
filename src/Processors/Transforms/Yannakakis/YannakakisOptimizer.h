@@ -54,9 +54,17 @@ void bottomUpSemiJoin(
     std::unordered_map<std::string, std::vector<ASTPtr>> & selectionPredicates);
 void computeTopologicalOrdering(std::unordered_map<std::string, std::vector<std::string>> & joinTree, std::vector<std::string> & ordering);
 void removeChild(ASTPtr & parent, const ASTPtr & child);
+void setExpressionList(ASTSelectQuery & selectQuery,
+                       std::string & nodeIdentifier,
+                       std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
+                       std::unordered_map<std::string, ASTPtr> & predicateObjects);
+void setProjectionOfSubquery(ASTPtr & subquery,
+                             std::string & leftIdentifier,
+                             std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
+                             std::unordered_map<std::string, ASTPtr> & predicateObjects
+                             );
 
-
-bool tryRemoveFromWhere(ASTSelectQuery & select, const ASTPtr & node);
+    bool tryRemoveFromWhere(ASTSelectQuery & select, const ASTPtr & node);
 bool bfsAnd(const ASTPtr & root, std::function<bool(ASTFunction &, const ASTPtr &)> visitor);
 ASTPtr makeSubqueryTemplate(const String & table_alias);
 ASTPtr buildJoinTreeRec(
@@ -84,8 +92,16 @@ void removeJoin(ASTSelectQuery & select);
 bool isEquiJoin(ASTs functionArguments);
 bool isIdentifier(const ASTPtr & ast);
 std::string extractTableAliasAfterAS(const std::string& input);
-bool rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree, ASTSelectQuery & selectQuery);
+bool rerootTree(std::unordered_map<std::string, std::vector<std::string>> &join_tree,
+                std::unordered_map<std::string, std::unordered_set<std::string>> &tableWithPredicateNames,
+                std::unordered_map<std::string, ASTPtr> & predicateObjects,
+                ASTSelectQuery & selectQuery);
 void setASTSelectQuery(ASTPtr & subquery, ASTSelectQuery & selectQuery);
+void collectComplexSelectionPredicate(
+    const ASTPtr & node,
+    std::unordered_map<std::string, std::unordered_set<std::string>> & tablesAndPredicates,
+    std::unordered_map<std::string, std::vector<ASTPtr>> & selectionPredicates
+);
 /*void removeChild(ASTPtr & parent, const ASTPtr & child);
 */
 }

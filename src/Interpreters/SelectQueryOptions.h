@@ -29,7 +29,7 @@ struct SelectQueryOptions
     QueryProcessingStage::Enum to_stage;
     size_t subquery_depth;
     bool only_analyze = false;
-    bool modify_inplace = true;
+    bool modify_inplace = false;
     bool remove_duplicates = false;
     bool ignore_quota = false;
     bool ignore_limits = false;

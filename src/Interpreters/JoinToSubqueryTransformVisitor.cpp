@@ -707,6 +707,7 @@ bool JoinToSubqueryTransformMatcher::needChildVisit(ASTPtr & node, const ASTPtr 
 
 void JoinToSubqueryTransformMatcher::visit(ASTPtr & ast, Data & data)
 {
+    std::cout << "JoinToSubqueryTransformMatcher" << std::endl;
     if (auto * t = ast->as<ASTSelectQuery>())
         visit(*t, ast, data);
 }

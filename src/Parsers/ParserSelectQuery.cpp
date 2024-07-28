@@ -492,7 +492,7 @@ bool ParserSelectQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expected)
     select_query->setExpression(ASTSelectQuery::Expression::INTERPOLATE, std::move(interpolate_expression_list));
 
     // Try to apply Yannakakis algorithm
-    YannakakisOptimizer().applyYannakakis(*select_query);
+    //YannakakisOptimizer().applyYannakakis(*select_query);
 
     return true;
 }

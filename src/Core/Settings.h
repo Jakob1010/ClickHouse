@@ -349,7 +349,7 @@ class IColumn;
     M(Float, opentelemetry_start_trace_probability, 0., "Probability to start an OpenTelemetry trace for an incoming query.", 0) \
     M(Bool, opentelemetry_trace_processors, false, "Collect OpenTelemetry spans for processors.", 0) \
     M(Bool, prefer_column_name_to_alias, false, "Prefer using column names instead of aliases if possible.", 0) \
-    M(Bool, allow_experimental_analyzer, false, "Allow experimental analyzer", 0) \
+    M(Bool, allow_experimental_analyzer, true, "Allow experimental analyzer", 1) \
     M(Bool, prefer_global_in_and_join, false, "If enabled, all IN/JOIN operators will be rewritten as GLOBAL IN/JOIN. It's useful when the to-be-joined tables are only available on the initiator and we need to always scatter their data on-the-fly during distributed processing with the GLOBAL keyword. It's also useful to reduce the need to access the external sources joining external tables.", 0) \
     \
     \
@@ -1066,7 +1066,7 @@ class IColumn;
     \
     M(Bool, dictionary_use_async_executor, false, "Execute a pipeline for reading from a dictionary with several threads. It's supported only by DIRECT dictionary with CLICKHOUSE source.", 0) \
     M(Bool, precise_float_parsing, false, "Prefer more precise (but slower) float parsing algorithm", 0)                                                              \
-    M(Bool, yannakakis_optimizer, true, "Enable Yannakakis optimizer.", 0)
+    M(Bool, yannakakis_optimizer, false, "Enable Yannakakis optimizer.", 0)
 // End of FORMAT_FACTORY_SETTINGS
 // Please add settings non-related to formats into the COMMON_SETTINGS above.
 

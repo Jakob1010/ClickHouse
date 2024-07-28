@@ -267,8 +267,6 @@ void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, cons
     cross_to_inner.cross_to_inner_join_rewrite = static_cast<UInt8>(std::min<UInt64>(settings.cross_to_inner_join_rewrite, 2));
     CrossToInnerJoinVisitor(cross_to_inner).visit(query);
 
-    //YannakakisOptimizer().applyYannakakis(select);
-
     JoinToSubqueryTransformVisitor::Data join_to_subs_data{tables, aliases};
     join_to_subs_data.try_to_keep_original_names = settings.multiple_joins_try_to_keep_original_names;
 
@@ -387,10 +385,6 @@ InterpreterSelectQuery::InterpreterSelectQuery(
     , metadata_snapshot(metadata_snapshot_)
     , prepared_sets(prepared_sets_)
 {
-    std::cout << "InterpreterSelectQuery" << std::endl;
-    std::cout << getSelectQuery().dumpTree() << std::endl;
-    std::cout << query_ptr->as<ASTSelectQuery &>().dumpTree() << std::endl;
-
     checkStackSize();
 
     if (!prepared_sets)
